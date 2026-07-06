@@ -6,8 +6,6 @@ test("splitAmount divides evenly when it can", () => {
   assert.deepStrictEqual(splitAmount(10, 2), [5, 5]);
 });
 
-// ⚠️ This test currently FAILS on purpose — it is the bug described in issue #1.
-// The capstone demo fixes splitAmount so the shares always sum to the total.
 test("splitAmount shares always sum back to the original total", () => {
   const shares = splitAmount(10, 3);
   const total = shares.reduce((a, b) => a + b, 0);
