@@ -1,0 +1,13 @@
+{
+  "name": "bill-splitter",
+  "version": "1.0.0",
+  "description": "Split shared expenses and see who owes whom. Zero dependencies.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

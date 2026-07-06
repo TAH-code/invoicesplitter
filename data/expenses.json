@@ -1,0 +1,20 @@
+{
+  "people": [
+    "Sam",
+    "Alex",
+    "Jordan"
+  ],
+  "expenses": [
+    {
+      "id": 1,
+      "description": "Dinner",
+      "payer": "Sam",
+      "amount": 10,
+      "participants": [
+        "Sam",
+        "Alex",
+        "Jordan"
+      ]
+    }
+  ]
+}
