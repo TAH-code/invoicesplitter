@@ -26,5 +26,20 @@
       "Bash(git push --force:*)",
       "Bash(sudo:*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.js) node --check \"$f\";; esac; }",
+            "timeout": 15,
+            "statusMessage": "Type-checking JS file..."
+          }
+        ]
+      }
+    ]
   }
 }
