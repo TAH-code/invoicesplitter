@@ -28,13 +28,27 @@
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit:*)",
+            "command": "out=$(npm test 2>&1); pass=$(printf '%s' \"$out\" | grep -m1 '^# pass' | grep -o '[0-9]*'); fail=$(printf '%s' \"$out\" | grep -m1 '^# fail' | grep -o '[0-9]*'); if [ \"$fail\" -gt 0 ] 2>/dev/null; then printf '{\"systemMessage\": \"\\u26a0 npm test: %s passed, %s failed \\u2014 check before pushing\"}' \"$pass\" \"$fail\"; else printf '{\"systemMessage\": \"\\u2713 npm test: %s passed\"}' \"$pass\"; fi",
+            "timeout": 30,
+            "statusMessage": "Running npm test before commit..."
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.js) node --check \"$f\";; esac; }",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.js) out=$(node --check \"$f\" 2>&1); code=$?; if [ $code -eq 0 ]; then printf '{\"systemMessage\": \"✓ Syntax OK: %s\"}' \"$f\"; else esc=$(printf '%s' \"$out\" | jq -Rs .); printf '{\"systemMessage\": \"✗ Syntax error in %s\", \"decision\": \"block\", \"reason\": %s}' \"$f\" \"$esc\"; fi;; esac; }",
             "timeout": 15,
             "statusMessage": "Type-checking JS file..."
           }
