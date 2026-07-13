@@ -1,6 +1,9 @@
 # 💸 Bill Splitter
 
-A tiny full-stack app for splitting shared expenses: add people, log who paid for what, and see who owes whom. Zero dependencies — just Node.
+A tiny full-stack app for splitting shared expenses, Splitwise-style. No setup,
+no groups — just type in who's on a bill, itemize it, and the app tracks a
+running **pairwise** balance between everyone who's ever shared a bill. Zero
+dependencies — just Node.
 
 ## Run it
 ```bash
@@ -13,24 +16,43 @@ Then open **http://localhost:3000**.
 npm test
 ```
 
-> ⚠️ **One test fails on purpose.** `splitAmount shares always sum back to the original total` is the bug described in **issue #1** (`ISSUES.md`). It's the target of the training session — leave it failing until then.
+## What it does
+- **Ad-hoc groups** — every bill has its own set of participants, entered fresh.
+  The same name (case-insensitively) is treated as the same person across bills.
+- **Itemized bills** — each line item is split evenly among its assignees
+  (an item with nobody checked is split among everyone). Tax and tip are
+  allocated proportionally to each person's share of the items.
+- **Grand-total reconciliation** — you enter the receipt total; the form blocks
+  saving until items + tax + tip match it (±1¢).
+- **Pairwise ledger** — every bill becomes pairwise debts (each non-payer owes
+  the payer). Balances are always **derived** by replaying all bills minus all
+  settlements, so editing or deleting a bill just recomputes.
+- **Partial settle-up** — record a full or partial payment between two people.
+- **Multi-currency** — each bill is in its own currency; all balances are shown
+  in your configurable **home currency**. Rates are fetched from a free,
+  no-API-key endpoint and cached; you can override any rate in Settings.
+- **Simplify view** — a read-only suggestion of the fewest payments that settle
+  everyone.
 
 ## How it works
 | Part | File |
 |---|---|
 | Pure calculation logic (the tested core) | `core/split.js` |
 | HTTP server + JSON API | `server.js` |
-| Frontend (vanilla JS) | `public/` |
-| Saved data | `data/expenses.json` |
+| Frontend (vanilla JS, hash-routed views) | `public/` |
+| Saved data | `data/db.json` |
 | Tests | `test/split.test.js` |
-| Shared Claude Code permissions | `.claude/settings.json` |
+| Full product spec | `SPEC.md` |
 
-The API: `GET /api/state`, `POST /api/people`, `POST /api/expenses`, `DELETE /api/expenses/:id`.
+### API
+- `GET /api/state` — everything: people, bills, settlements, rates, and derived balances.
+- `POST /api/bills`, `PUT /api/bills/:id`, `DELETE /api/bills/:id`
+- `POST /api/settlements`, `DELETE /api/settlements/:id`
+- `PUT /api/settings` — set the home currency (and optional rate overrides).
+- `PUT /api/rates` — set/override a single `FROM->TO` rate.
+
+Bill/settlement writes that need an unknown exchange rate return `409` with a
+`needRate` hint; the UI then prompts for a manual rate and retries.
 
 ## Requirements
-Node.js 18+ (uses the built-in test runner, so nothing to install).
-
-## Where to go next
-- `ISSUES.md` — two ready-to-work issues (one bug, one feature).
-- `TRAINEE.md` — the hands-on exercise.
-- Idea for later: a "settle-up plan" that turns balances into the fewest payments (who pays whom).
+Node.js 18+ (uses the built-in test runner and `fetch`, so nothing to install).

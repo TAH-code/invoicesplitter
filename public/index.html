@@ -7,7 +7,19 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <header class="topbar">
+      <div class="brand">💸 Bill Splitter</div>
+      <nav id="nav">
+        <a href="#/add" data-route="add">Add bill</a>
+        <a href="#/balances" data-route="balances">Balances</a>
+        <a href="#/simplify" data-route="simplify">Simplify</a>
+        <a href="#/bills" data-route="bills">Bills</a>
+        <a href="#/settings" data-route="settings">Settings</a>
+      </nav>
+      <span class="home-cur" id="home-cur"></span>
+    </header>
+    <main id="app"></main>
+    <div id="toast" class="toast" hidden></div>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -7,23 +7,71 @@ body {
   background: #f4f6f8;
   color: #1a2027;
   margin: 0;
-  padding: 2rem 1rem;
 }
 
-#app {
-  max-width: 640px;
+/* ---- top bar ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #fff;
+  padding: 0.75rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+#nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+#nav a {
+  text-decoration: none;
+  color: #556;
+  padding: 0.4rem 0.7rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+#nav a:hover {
+  background: #eef2f7;
+}
+
+#nav a.active {
+  background: #eaf0ff;
+  color: #2f6df6;
+}
+
+.home-cur {
+  color: #8a94a6;
+  font-size: 0.85rem;
+}
+
+main {
+  max-width: 720px;
   margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
 }
 
 h1 {
-  text-align: center;
-  font-size: 2rem;
-  margin-bottom: 1.5rem;
+  font-size: 1.6rem;
+  margin: 0 0 1rem;
 }
 
 h2 {
-  font-size: 1.15rem;
-  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  margin: 1rem 0 0.75rem;
 }
 
 .card {
@@ -40,6 +88,12 @@ h2 {
   align-items: flex-end;
   flex-wrap: wrap;
   margin-top: 0.5rem;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
 }
 
 input,
@@ -62,7 +116,6 @@ label {
   gap: 0.25rem;
   font-size: 0.85rem;
   color: #556;
-  flex: 1;
 }
 
 button {
@@ -79,55 +132,198 @@ button:hover {
   background: #245ad0;
 }
 
-.chip {
-  display: inline-block;
-  background: #eaf0ff;
-  color: #2f6df6;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.9rem;
-  margin-right: 0.4rem;
+button:disabled {
+  background: #b9c4d4;
+  cursor: not-allowed;
 }
 
-#exp-desc {
+button.ghost {
+  background: #eef2f7;
+  color: #2f6df6;
+}
+
+button.ghost:hover {
+  background: #e2e9f3;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.hint {
+  color: #8a94a6;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.muted {
+  color: #8a94a6;
+}
+
+/* ---- chips ---- */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   margin-bottom: 0.5rem;
 }
 
-.split-for {
-  margin: 0.85rem 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
+.chip {
+  display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
+  background: #eaf0ff;
+  color: #2f6df6;
+  padding: 0.25rem 0.4rem 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
 }
 
-.check {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.3rem;
+.chip-x {
+  background: transparent;
+  color: #2f6df6;
+  border: none;
+  padding: 0 0.2rem;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
-.check input {
+.chip-x:hover {
+  background: transparent;
+  color: #d3344d;
+}
+
+/* ---- items table ---- */
+.items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.items th,
+.items td {
+  padding: 0.35rem 0.4rem;
+  text-align: left;
+}
+
+.items th.num,
+.items td.num {
+  text-align: right;
+  width: 6.5rem;
+}
+
+.items th.who,
+.items td.who {
+  text-align: center;
+  width: 2.5rem;
+  max-width: 3.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.items td.who input {
   width: auto;
 }
 
-.expenses {
+.items tbody tr {
+  border-top: 1px solid #eef1f5;
+}
+
+/* ---- reconcile banner ---- */
+.reconcile {
+  margin-top: 1rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.reconcile.ok {
+  background: #e8f7ee;
+  color: #1a8a4a;
+}
+
+.reconcile.bad {
+  background: #fdeaea;
+  color: #d3344d;
+}
+
+.banner {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.banner.warn {
+  background: #fff6e5;
+  color: #8a5a00;
+}
+
+.banner a {
+  color: inherit;
+}
+
+/* ---- lists ---- */
+ul.netlist,
+ul.pairlist,
+ul.feed {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-.expenses li {
+.netlist li,
+.pairlist li,
+.feed li {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   padding: 0.6rem 0;
   border-bottom: 1px solid #eef1f5;
 }
 
-.muted {
-  color: #8a94a6;
+.netlist li:last-child,
+.pairlist li:last-child,
+.feed li:last-child {
+  border-bottom: none;
+}
+
+.netlist li a,
+.pairlist li a,
+.feed li a {
+  text-decoration: none;
+  color: inherit;
+  flex: 1;
+}
+
+.netlist li a:hover,
+.pairlist li a:hover {
+  text-decoration: underline;
+}
+
+.netlist li span:last-child {
+  color: #556;
+  font-size: 0.9rem;
+}
+
+.amt {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mini {
+  font-size: 0.8rem;
+  color: #2f6df6 !important;
+  flex: none !important;
+}
+
+.settle-btn {
+  padding: 0.3rem 0.7rem;
   font-size: 0.85rem;
 }
 
@@ -142,25 +338,50 @@ button:hover {
   background: #fdeaea;
 }
 
-.settle ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.settle li {
-  padding: 0.35rem 0;
-  font-size: 1.05rem;
-}
-
-.settle .owed {
+.owed {
   color: #1a8a4a;
 }
 
-.settle .owes {
+.owes {
   color: #d3344d;
 }
 
-.settle .even {
+.even {
   color: #8a94a6;
+}
+
+.big {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+/* ---- toast ---- */
+.toast {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a2027;
+  color: #fff;
+  padding: 0.7rem 1.1rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+}
+
+.toast.error {
+  background: #d3344d;
+}
+
+@media (max-width: 560px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+  .items th.who,
+  .items td.who {
+    width: 2rem;
+    font-size: 0.65rem;
+  }
 }
