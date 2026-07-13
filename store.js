@@ -1,22 +1,21 @@
 // Persistence layer for Bill Splitter.
 //
 // The whole database is a single JSON blob. Two backends, auto-selected:
-//   • Upstash Redis (Vercel / serverless) when KV_REST_API_URL is set — talked
-//     to over its REST API with the built-in `fetch`, so NO npm dependency.
+//   • Vercel Blob (serverless) when BLOB_READ_WRITE_TOKEN is set — the DB JSON
+//     is stored as one blob object. @vercel/blob is required lazily so local
+//     dev needs no dependency.
 //   • A local JSON file (dev / any persistent host) otherwise.
 
 const fs = require("fs");
 const path = require("path");
 
 const DATA_FILE = path.join(__dirname, "data", "db.json");
-const KEY = "billsplitter:db";
+const BLOB_PATH = "billsplitter-db.json";
 
 const DEFAULT_DB = { homeCurrency: "USD", people: {}, bills: [], settlements: [], rates: {} };
 
-// Accept either Vercel KV or raw Upstash env var names.
-const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
-const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
-const useRedis = Boolean(REDIS_URL && REDIS_TOKEN);
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || "";
+const useBlob = Boolean(BLOB_TOKEN);
 
 function normalize(db) {
   return {
@@ -28,22 +27,17 @@ function normalize(db) {
   };
 }
 
-async function redisCommand(command) {
-  const resp = await fetch(REDIS_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify(command),
-  });
-  if (!resp.ok) throw new Error(`Redis ${command[0]} failed: ${resp.status}`);
-  return resp.json(); // { result: ... }
-}
-
 async function load() {
-  if (useRedis) {
+  if (useBlob) {
     try {
-      const { result } = await redisCommand(["GET", KEY]);
-      if (!result) return { ...DEFAULT_DB };
-      return normalize(JSON.parse(result));
+      const { list } = require("@vercel/blob");
+      const { blobs } = await list({ prefix: BLOB_PATH, token: BLOB_TOKEN, limit: 1 });
+      const b = blobs.find((x) => x.pathname === BLOB_PATH) || blobs[0];
+      if (!b) return { ...DEFAULT_DB };
+      // Cache-bust so we always read the latest write (Blob is CDN-cached).
+      const resp = await fetch(`${b.url}?ts=${Date.now()}`, { cache: "no-store" });
+      if (!resp.ok) return { ...DEFAULT_DB };
+      return normalize(await resp.json());
     } catch {
       return { ...DEFAULT_DB };
     }
@@ -57,20 +51,26 @@ async function load() {
 
 async function save(db) {
   const value = JSON.stringify(normalize(db), null, 2);
-  if (useRedis) {
-    await redisCommand(["SET", KEY, value]);
+  if (useBlob) {
+    const { put } = require("@vercel/blob");
+    await put(BLOB_PATH, value, {
+      access: "public",
+      token: BLOB_TOKEN,
+      addRandomSuffix: false, // stable pathname so we can find it again
+      allowOverwrite: true,
+      contentType: "application/json",
+      cacheControlMaxAge: 0, // avoid stale reads after a write
+    });
     return;
   }
-  // File backend. Best-effort: a read-only serverless FS (e.g. Vercel without
-  // Redis configured) must not crash requests — it just won't persist.
+  // File backend. Best-effort: a read-only serverless FS must not crash requests.
   try {
     fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
     fs.writeFileSync(DATA_FILE, value);
   } catch (err) {
-    // Read-only serverless FS (Vercel without Redis): don't crash, just skip.
     if (["EROFS", "EACCES", "EPERM", "ENOENT"].includes(err.code)) return;
     throw err;
   }
 }
 
-module.exports = { load, save, useRedis, DEFAULT_DB };
+module.exports = { load, save, useBlob, DEFAULT_DB };
