@@ -61,8 +61,16 @@ async function save(db) {
     await redisCommand(["SET", KEY, value]);
     return;
   }
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  fs.writeFileSync(DATA_FILE, value);
+  // File backend. Best-effort: a read-only serverless FS (e.g. Vercel without
+  // Redis configured) must not crash requests — it just won't persist.
+  try {
+    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+    fs.writeFileSync(DATA_FILE, value);
+  } catch (err) {
+    // Read-only serverless FS (Vercel without Redis): don't crash, just skip.
+    if (["EROFS", "EACCES", "EPERM", "ENOENT"].includes(err.code)) return;
+    throw err;
+  }
 }
 
 module.exports = { load, save, useRedis, DEFAULT_DB };
