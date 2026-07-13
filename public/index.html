@@ -7,19 +7,34 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">💸 Bill Splitter</div>
-      <nav id="nav">
-        <a href="#/add" data-route="add">Add bill</a>
-        <a href="#/balances" data-route="balances">Balances</a>
-        <a href="#/simplify" data-route="simplify">Simplify</a>
-        <a href="#/bills" data-route="bills">Bills</a>
-        <a href="#/settings" data-route="settings">Settings</a>
-      </nav>
-      <span class="home-cur" id="home-cur"></span>
-    </header>
-    <main id="app"></main>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">💸</span> Bill Splitter</div>
+        <nav id="nav">
+          <div class="nav-group">
+            <span class="nav-label">Bills</span>
+            <a href="#/add" data-route="add">Add a bill</a>
+            <a href="#/bills" data-route="bills">All bills</a>
+          </div>
+          <div class="nav-group">
+            <span class="nav-label">Money</span>
+            <a href="#/balances" data-route="balances">Balances</a>
+            <a href="#/simplify" data-route="simplify">Simplify</a>
+          </div>
+          <div class="nav-group">
+            <span class="nav-label">Setup</span>
+            <a href="#/settings" data-route="settings">Settings</a>
+          </div>
+        </nav>
+        <div class="sidebar-foot">
+          <span class="home-cur" id="home-cur"></span>
+        </div>
+      </aside>
+      <main id="app"></main>
+    </div>
     <div id="toast" class="toast" hidden></div>
+    <script src="/core/currencies.js"></script>
+    <script src="/core/split.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

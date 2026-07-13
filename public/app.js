@@ -1,4 +1,6 @@
 const app = document.getElementById("app");
+const C = window.Currencies;
+const Split = window.Split;
 
 // ---- global state --------------------------------------------------------
 
@@ -30,9 +32,19 @@ async function api(method, url, body) {
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+const keyOf = (n) => Split.nameKey(n);
+
 function fmt(n, cur) {
-  const currency = cur || (state && state.homeCurrency) || "USD";
-  return `${currency} ${Number(n).toFixed(2)}`;
+  return C.formatMoney(n, cur || (state && state.homeCurrency) || "USD");
+}
+
+function currencyOptions(selected) {
+  const sel = String(selected || "").toUpperCase();
+  let opts = C.CURRENCIES.map(
+    (c) => `<option value="${c.code}" ${c.code === sel ? "selected" : ""}>${c.code} · ${esc(c.name)} (${esc(c.symbol)})</option>`
+  );
+  if (sel && !C.meta(sel)) opts = [`<option value="${esc(sel)}" selected>${esc(sel)}</option>`, ...opts];
+  return opts.join("");
 }
 
 function toast(msg, isError) {
@@ -44,15 +56,11 @@ function toast(msg, isError) {
   toast._t = setTimeout(() => (el.hidden = true), 3500);
 }
 
-function keyOf(name) {
-  return String(name).trim().toLowerCase();
-}
-
 function nav(hash) {
   location.hash = hash;
 }
 
-// When the server asks for a manual rate (409), collect it and merge into body.
+// When the server asks for a manual rate (409), collect it and retry.
 async function submitWithRate(method, url, body) {
   let manualRates = { ...(body.manualRates || {}) };
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -86,7 +94,7 @@ function parseRoute() {
 
 async function refresh() {
   state = await getState();
-  document.getElementById("home-cur").textContent = `Home: ${state.homeCurrency}`;
+  document.getElementById("home-cur").textContent = `Home: ${state.homeCurrency} (${C.symbolOf(state.homeCurrency)})`;
   render();
 }
 
@@ -121,6 +129,7 @@ function render() {
 function blankForm() {
   return {
     id: null,
+    mode: "even",
     date: new Date().toISOString().slice(0, 10),
     description: "",
     currency: (state && state.homeCurrency) || "USD",
@@ -134,47 +143,100 @@ function blankForm() {
 }
 
 function formFromBill(bill) {
+  const single = bill.items.length === 1;
+  const even =
+    single &&
+    Number(bill.tax || 0) === 0 &&
+    Number(bill.tip || 0) === 0 &&
+    (!bill.items[0].assignees.length ||
+      bill.items[0].assignees.length === bill.participants.length) &&
+    Split.round2(bill.items[0].amount) === Split.round2(bill.grandTotal);
   return {
     id: bill.id,
+    mode: even ? "even" : "itemize",
     date: bill.date,
     description: bill.description,
     currency: bill.currency,
     payer: bill.payer,
     participants: [...bill.participants],
-    items: bill.items.map((it) => ({
-      label: it.label,
-      amount: String(it.amount),
-      assignees: [...it.assignees],
-    })),
-    tax: String(bill.tax || ""),
-    tip: String(bill.tip || ""),
-    grandTotal: String(bill.grandTotal || ""),
+    items: bill.items.map((it) => ({ label: it.label, amount: String(it.amount), assignees: [...it.assignees] })),
+    tax: bill.tax ? String(bill.tax) : "",
+    tip: bill.tip ? String(bill.tip) : "",
+    grandTotal: bill.grandTotal ? String(bill.grandTotal) : "",
   };
 }
 
-// Read the current DOM values back into `form` before a structural re-render.
-function syncForm() {
-  if (!form) return;
-  const val = (id) => (document.getElementById(id) ? document.getElementById(id).value : "");
-  form.description = val("f-desc");
-  form.date = val("f-date");
-  form.currency = (val("f-currency") || form.currency).toUpperCase();
-  form.tax = val("f-tax");
-  form.tip = val("f-tip");
-  form.grandTotal = val("f-grandtotal");
-  const payerEl = document.getElementById("f-payer");
-  if (payerEl) form.payer = payerEl.value;
-  form.items.forEach((it, i) => {
-    const l = document.getElementById(`item-label-${i}`);
-    const a = document.getElementById(`item-amount-${i}`);
-    if (l) it.label = l.value;
-    if (a) it.amount = a.value;
-  });
+// Build a core-shaped bill from the current form (used for preview + save).
+function formToBill(f) {
+  if (f.mode === "even") {
+    const amount = Number(f.items[0].amount) || 0;
+    return {
+      date: f.date,
+      description: f.description,
+      currency: (f.currency || "USD").toUpperCase(),
+      payer: f.payer,
+      participants: f.participants,
+      items: [{ label: f.description || "Whole bill", amount, assignees: [] }],
+      tax: 0,
+      tip: 0,
+      grandTotal: amount,
+    };
+  }
+  const items = f.items
+    .filter((it) => it.label.trim() || Number(it.amount) > 0)
+    .map((it) => ({ label: it.label, amount: Number(it.amount) || 0, assignees: it.assignees }));
+  const tax = Number(f.tax) || 0;
+  const tip = Number(f.tip) || 0;
+  return {
+    date: f.date,
+    description: f.description,
+    currency: (f.currency || "USD").toUpperCase(),
+    payer: f.payer,
+    participants: f.participants,
+    items,
+    tax,
+    tip,
+    grandTotal: Number(f.grandTotal) || 0,
+  };
 }
 
-function computedTotal() {
-  const items = form.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
-  return items + (Number(form.tax) || 0) + (Number(form.tip) || 0);
+function itemsSubtotal(f) {
+  return f.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+}
+
+// Read DOM inputs back into `form` before a structural re-render / save.
+function syncForm() {
+  if (!form) return;
+  const val = (id) => {
+    const e = document.getElementById(id);
+    return e ? e.value : undefined;
+  };
+  const desc = val("f-desc");
+  if (desc !== undefined) form.description = desc;
+  const date = val("f-date");
+  if (date !== undefined) form.date = date;
+  const cur = val("f-currency");
+  if (cur !== undefined) form.currency = cur.toUpperCase();
+  const payer = val("f-payer");
+  if (payer !== undefined) form.payer = payer;
+
+  if (form.mode === "even") {
+    const t = val("f-total");
+    if (t !== undefined) form.items[0].amount = t;
+  } else {
+    const tax = val("f-tax");
+    if (tax !== undefined) form.tax = tax;
+    const tip = val("f-tip");
+    if (tip !== undefined) form.tip = tip;
+    const gt = val("f-grandtotal");
+    if (gt !== undefined) form.grandTotal = gt;
+    form.items.forEach((it, i) => {
+      const l = val(`item-label-${i}`);
+      const a = val(`item-amount-${i}`);
+      if (l !== undefined) it.label = l;
+      if (a !== undefined) it.amount = a;
+    });
+  }
 }
 
 function renderAdd(editId) {
@@ -188,14 +250,19 @@ function renderAdd(editId) {
 
   const people = state.people;
   const isEdit = form.id != null;
-  const total = computedTotal();
-  const gt = Number(form.grandTotal) || 0;
-  const reconciled = Math.abs(total - gt) <= 0.01;
+  const even = form.mode === "even";
 
   app.innerHTML = `
     <h1>${isEdit ? "Edit bill" : "Add a bill"}</h1>
+    <p class="hint">${even ? "Split a total evenly among everyone." : "Itemize the receipt and assign each line."}</p>
+
     <section class="card">
-      <div class="grid2">
+      <div class="segmented" role="tablist">
+        <button type="button" class="seg ${even ? "on" : ""}" data-mode="even">⚡ Split evenly</button>
+        <button type="button" class="seg ${even ? "" : "on"}" data-mode="itemize">🧾 Itemize</button>
+      </div>
+
+      <div class="grid2" style="margin-top:1rem">
         <label>Description
           <input id="f-desc" value="${esc(form.description)}" placeholder="Dinner at Luigi's" />
         </label>
@@ -203,115 +270,225 @@ function renderAdd(editId) {
           <input id="f-date" type="date" value="${esc(form.date)}" />
         </label>
         <label>Currency
-          <input id="f-currency" value="${esc(form.currency)}" maxlength="3" style="text-transform:uppercase" />
+          <select id="f-currency">${currencyOptions(form.currency)}</select>
         </label>
         <label>Paid by
           <select id="f-payer">
             <option value="">— choose payer —</option>
-            ${form.participants
-              .map((p) => `<option ${keyOf(p) === keyOf(form.payer) ? "selected" : ""}>${esc(p)}</option>`)
-              .join("")}
+            ${form.participants.map((p) => `<option ${keyOf(p) === keyOf(form.payer) ? "selected" : ""}>${esc(p)}</option>`).join("")}
           </select>
         </label>
       </div>
 
-      <h2>Participants</h2>
+      <h2>Who's splitting</h2>
       <div class="chips">
         ${
-          form.participants.map((p) => `<span class="chip">${esc(p)}<button class="chip-x" data-remove-participant="${esc(p)}">✕</button></span>`).join("") ||
+          form.participants.map((p) => `<span class="chip">${esc(p)}<button class="chip-x" data-remove-participant="${esc(p)}" type="button">✕</button></span>`).join("") ||
           "<em class='muted'>Add the people on this bill.</em>"
         }
       </div>
       <div class="row">
         <input id="new-participant" list="known-people" placeholder="Add a person…" />
-        <datalist id="known-people">
-          ${people.map((p) => `<option value="${esc(p)}"></option>`).join("")}
-        </datalist>
-        <button id="add-participant" type="button">Add</button>
+        <datalist id="known-people">${people.map((p) => `<option value="${esc(p)}"></option>`).join("")}</datalist>
+        <button id="add-participant" type="button" class="ghost">Add</button>
       </div>
 
-      <h2>Items</h2>
-      <table class="items">
-        <thead>
-          <tr>
-            <th>Item</th><th class="num">Amount</th>
-            ${form.participants.map((p) => `<th class="who" title="${esc(p)}">${esc(p)}</th>`).join("")}
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${form.items
-            .map(
-              (it, i) => `
-            <tr>
-              <td><input id="item-label-${i}" value="${esc(it.label)}" placeholder="Item ${i + 1}" /></td>
-              <td class="num"><input id="item-amount-${i}" type="number" min="0" step="0.01" value="${esc(it.amount)}" placeholder="0.00" /></td>
-              ${form.participants
-                .map(
-                  (p) =>
-                    `<td class="who"><input type="checkbox" data-item="${i}" data-who="${esc(p)}" ${
-                      it.assignees.some((a) => keyOf(a) === keyOf(p)) ? "checked" : ""
-                    } /></td>`
-                )
-                .join("")}
-              <td><button class="del" type="button" data-remove-item="${i}" title="Remove item">✕</button></td>
-            </tr>`
-            )
-            .join("")}
-        </tbody>
-      </table>
-      <p class="hint">An item with no one checked is split evenly among all participants.</p>
-      <button id="add-item" type="button" class="ghost">+ Add item</button>
-
-      <div class="grid2" style="margin-top:1rem">
-        <label>Tax
-          <input id="f-tax" type="number" min="0" step="0.01" value="${esc(form.tax)}" placeholder="0.00" />
-        </label>
-        <label>Tip
-          <input id="f-tip" type="number" min="0" step="0.01" value="${esc(form.tip)}" placeholder="0.00" />
-        </label>
-        <label>Grand total (from receipt)
-          <input id="f-grandtotal" type="number" min="0" step="0.01" value="${esc(form.grandTotal)}" placeholder="0.00" />
-        </label>
-      </div>
-
-      <div class="reconcile ${reconciled ? "ok" : "bad"}">
-        Items + tax + tip = <strong>${fmt(total, form.currency)}</strong>
-        · Grand total = <strong>${fmt(gt, form.currency)}</strong>
-        ${reconciled ? "✓ matches" : "✗ does not match — adjust before saving"}
-      </div>
-
-      <div class="actions">
-        <button id="save-bill" type="button" ${reconciled ? "" : "disabled"}>${isEdit ? "Save changes" : "Add bill"}</button>
-        ${isEdit ? `<button id="cancel-edit" type="button" class="ghost">Cancel</button>` : ""}
-      </div>
+      ${even ? evenSection() : itemizeSection()}
     </section>
+
+    <section class="card preview-card">
+      <h2>Split preview</h2>
+      <div id="preview">${previewHTML()}</div>
+    </section>
+
+    <div class="actions">
+      <button id="save-bill" type="button">${isEdit ? "Save changes" : "Add bill"}</button>
+      ${isEdit ? `<button id="cancel-edit" type="button" class="ghost">Cancel</button>` : `<button id="reset-bill" type="button" class="ghost">Clear</button>`}
+    </div>
   `;
 
   wireAddView();
+  refreshSaveState();
+}
+
+function evenSection() {
+  return `
+    <h2>Total amount</h2>
+    <div class="total-row">
+      <span class="cur-badge">${esc(C.symbolOf(form.currency))}</span>
+      <input id="f-total" type="number" min="0" step="0.01" value="${esc(form.items[0].amount)}" placeholder="0.00" class="big-amount" />
+    </div>
+    <p class="hint">Split equally among everyone above. Switch to <strong>Itemize</strong> for uneven splits, tax or tip.</p>
+  `;
+}
+
+function itemizeSection() {
+  const sub = itemsSubtotal(form);
+  return `
+    <h2>Items</h2>
+    <div class="table-scroll">
+    <table class="items">
+      <thead>
+        <tr>
+          <th>Item</th><th class="num">Amount</th>
+          ${form.participants.map((p) => `<th class="who" title="${esc(p)}">${esc(p.slice(0, 6))}</th>`).join("")}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${form.items
+          .map(
+            (it, i) => `
+          <tr>
+            <td><input id="item-label-${i}" value="${esc(it.label)}" placeholder="Item ${i + 1}" /></td>
+            <td class="num"><input id="item-amount-${i}" type="number" min="0" step="0.01" value="${esc(it.amount)}" placeholder="0.00" /></td>
+            ${form.participants
+              .map(
+                (p) =>
+                  `<td class="who"><input type="checkbox" data-item="${i}" data-who="${esc(p)}" ${
+                    it.assignees.some((a) => keyOf(a) === keyOf(p)) ? "checked" : ""
+                  } /></td>`
+              )
+              .join("")}
+            <td><button class="del" type="button" data-remove-item="${i}" title="Remove item">✕</button></td>
+          </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>
+    </div>
+    <p class="hint">Leave an item's boxes unchecked to split it among everyone.</p>
+    <button id="add-item" type="button" class="ghost">+ Add item</button>
+
+    <h2>Tax &amp; tip</h2>
+    <div class="grid2">
+      <label>Tax
+        <input id="f-tax" type="number" min="0" step="0.01" value="${esc(form.tax)}" placeholder="0.00" />
+      </label>
+      <label>Tip
+        <input id="f-tip" type="number" min="0" step="0.01" value="${esc(form.tip)}" placeholder="0.00" />
+      </label>
+    </div>
+    <div class="tip-quick">
+      <span class="muted">Quick tip:</span>
+      ${[0, 10, 15, 18, 20].map((p) => `<button type="button" class="pill-btn" data-tip="${p}">${p === 0 ? "None" : p + "%"}</button>`).join("")}
+      <span class="muted">of ${fmt(sub, form.currency)}</span>
+    </div>
+
+    <h2>Grand total</h2>
+    <div class="row">
+      <label style="flex:1">Receipt grand total
+        <input id="f-grandtotal" type="number" min="0" step="0.01" value="${esc(form.grandTotal)}" placeholder="0.00" />
+      </label>
+      <button id="auto-total" type="button" class="ghost" title="Set to items + tax + tip">= Auto</button>
+    </div>
+    <div id="reconcile-bar"></div>
+  `;
+}
+
+function previewHTML() {
+  if (!form.participants.length || !form.payer) {
+    return `<p class="hint">Add people and choose who paid to see who owes what.</p>`;
+  }
+  const bill = formToBill(form);
+  let shares;
+  try {
+    shares = Split.computeBillShares(bill);
+  } catch {
+    return `<p class="hint">Enter amounts to preview.</p>`;
+  }
+  const cur = bill.currency;
+  const home = state.homeCurrency;
+  const rate = Split.getRate(state.rates, cur, home);
+  const rows = form.participants
+    .map((p) => {
+      const amt = shares[p] || 0;
+      const isPayer = keyOf(p) === keyOf(form.payer);
+      const conv = cur !== home && rate != null ? ` <span class="muted">≈ ${fmt(amt * rate, home)}</span>` : "";
+      return `<li>
+        <span>${esc(p)} ${isPayer ? '<em class="tag">paid</em>' : ""}</span>
+        <span class="amt">${fmt(amt, cur)}${conv}</span>
+      </li>`;
+    })
+    .join("");
+  const total = bill.items.reduce((s, it) => s + it.amount, 0) + bill.tax + bill.tip;
+  return `<ul class="preview">${rows}</ul>
+    <div class="preview-total"><span>Total</span><span class="amt">${fmt(total, cur)}</span></div>`;
+}
+
+function reconcileBarHTML() {
+  if (form.mode === "even") return "";
+  const bill = formToBill(form);
+  const rec = Split.reconcileBill(bill);
+  const cls = rec.ok ? "ok" : "bad";
+  return `<div class="reconcile ${cls}">
+    Items + tax + tip = <strong>${fmt(rec.computedTotal, form.currency)}</strong> ·
+    Grand total = <strong>${fmt(rec.grandTotal, form.currency)}</strong>
+    ${rec.ok ? "✓ matches" : "✗ tap “= Auto” or adjust"}
+  </div>`;
+}
+
+function canSave() {
+  if (!form.participants.length || !form.payer) return false;
+  const bill = formToBill(form);
+  if (!bill.items.length) return false;
+  if (form.mode === "itemize" && !Split.reconcileBill(bill).ok) return false;
+  const total = bill.items.reduce((s, it) => s + it.amount, 0) + bill.tax + bill.tip;
+  return total > 0;
+}
+
+// Update the live bits in place (no full re-render) for smooth typing.
+function live() {
+  syncForm();
+  const prev = document.getElementById("preview");
+  if (prev) prev.innerHTML = previewHTML();
+  const bar = document.getElementById("reconcile-bar");
+  if (bar) bar.innerHTML = reconcileBarHTML();
+  refreshSaveState();
+}
+
+function refreshSaveState() {
+  const btn = document.getElementById("save-bill");
+  if (btn) btn.disabled = !canSave();
+  const bar = document.getElementById("reconcile-bar");
+  if (bar && !bar.innerHTML) bar.innerHTML = reconcileBarHTML();
 }
 
 function wireAddView() {
-  const recompute = () => {
-    syncForm();
-    renderAdd(form.id); // re-render to update reconcile + payer options
-  };
-
-  document.getElementById("add-participant").onclick = () => {
-    const input = document.getElementById("new-participant");
-    const name = input.value.trim();
-    if (name && !form.participants.some((p) => keyOf(p) === keyOf(name))) {
+  document.querySelectorAll(".seg").forEach((btn) => {
+    btn.onclick = () => {
       syncForm();
-      form.participants.push(name);
+      form.mode = btn.dataset.mode;
+      if (form.mode === "even" && form.items.length !== 1) {
+        // collapse to a single even item, seeding total from the current sum
+        const amt = itemsSubtotal(form);
+        form.items = [{ label: "", amount: amt ? String(amt) : "", assignees: [] }];
+        form.tax = "";
+        form.tip = "";
+      }
       renderAdd(form.id);
-    }
-  };
-  document.getElementById("new-participant").onkeydown = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      document.getElementById("add-participant").click();
-    }
-  };
+    };
+  });
+
+  const addP = document.getElementById("add-participant");
+  if (addP)
+    addP.onclick = () => {
+      const input = document.getElementById("new-participant");
+      const name = input.value.trim();
+      if (name && !form.participants.some((p) => keyOf(p) === keyOf(name))) {
+        syncForm();
+        form.participants.push(name);
+        renderAdd(form.id);
+      }
+    };
+  const newP = document.getElementById("new-participant");
+  if (newP)
+    newP.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addP.click();
+      }
+    };
 
   document.querySelectorAll("[data-remove-participant]").forEach((btn) => {
     btn.onclick = () => {
@@ -324,17 +501,18 @@ function wireAddView() {
     };
   });
 
-  document.getElementById("add-item").onclick = () => {
-    syncForm();
-    form.items.push({ label: "", amount: "", assignees: [] });
-    renderAdd(form.id);
-  };
+  const addItem = document.getElementById("add-item");
+  if (addItem)
+    addItem.onclick = () => {
+      syncForm();
+      form.items.push({ label: "", amount: "", assignees: [] });
+      renderAdd(form.id);
+    };
 
   document.querySelectorAll("[data-remove-item]").forEach((btn) => {
     btn.onclick = () => {
       syncForm();
-      const i = Number(btn.dataset.removeItem);
-      form.items.splice(i, 1);
+      form.items.splice(Number(btn.dataset.removeItem), 1);
       if (form.items.length === 0) form.items.push({ label: "", amount: "", assignees: [] });
       renderAdd(form.id);
     };
@@ -342,7 +520,6 @@ function wireAddView() {
 
   document.querySelectorAll('input[type="checkbox"][data-item]').forEach((cb) => {
     cb.onchange = () => {
-      syncForm();
       const i = Number(cb.dataset.item);
       const who = cb.dataset.who;
       const item = form.items[i];
@@ -351,43 +528,58 @@ function wireAddView() {
       } else {
         item.assignees = item.assignees.filter((a) => keyOf(a) !== keyOf(who));
       }
+      live();
     };
   });
 
-  // Live reconcile feedback as amounts/tax/tip/total change.
-  ["f-tax", "f-tip", "f-grandtotal"].forEach((id) => {
+  document.querySelectorAll("[data-tip]").forEach((btn) => {
+    btn.onclick = () => {
+      syncForm();
+      const pct = Number(btn.dataset.tip);
+      form.tip = pct === 0 ? "" : String(Split.round2(itemsSubtotal(form) * (pct / 100)));
+      renderAdd(form.id);
+    };
+  });
+
+  const auto = document.getElementById("auto-total");
+  if (auto)
+    auto.onclick = () => {
+      syncForm();
+      const bill = formToBill(form);
+      form.grandTotal = String(Split.round2(bill.items.reduce((s, it) => s + it.amount, 0) + bill.tax + bill.tip));
+      renderAdd(form.id);
+    };
+
+  // Live-update inputs
+  ["f-desc", "f-currency", "f-payer", "f-total", "f-tax", "f-tip", "f-grandtotal"].forEach((id) => {
     const el = document.getElementById(id);
-    if (el) el.oninput = recompute;
+    if (el) {
+      el.oninput = live;
+      el.onchange = live;
+    }
   });
   form.items.forEach((_, i) => {
-    const a = document.getElementById(`item-amount-${i}`);
-    if (a) a.oninput = recompute;
+    ["item-label-" + i, "item-amount-" + i].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.oninput = live;
+    });
   });
 
   const cancel = document.getElementById("cancel-edit");
   if (cancel) cancel.onclick = () => nav("#/bills");
+  const reset = document.getElementById("reset-bill");
+  if (reset)
+    reset.onclick = () => {
+      form = blankForm();
+      renderAdd(null);
+    };
 
   document.getElementById("save-bill").onclick = async () => {
     syncForm();
-    const payload = {
-      date: form.date,
-      description: form.description,
-      currency: form.currency,
-      payer: form.payer,
-      participants: form.participants,
-      items: form.items
-        .filter((it) => it.label.trim() || Number(it.amount) > 0)
-        .map((it) => ({ label: it.label, amount: Number(it.amount) || 0, assignees: it.assignees })),
-      tax: Number(form.tax) || 0,
-      tip: Number(form.tip) || 0,
-      grandTotal: Number(form.grandTotal) || 0,
-    };
+    if (!canSave()) return toast("Add people, a payer, amounts, and a matching total.", true);
+    const bill = formToBill(form);
     const isEdit = form.id != null;
-    const res = await submitWithRate(
-      isEdit ? "PUT" : "POST",
-      isEdit ? `/api/bills/${form.id}` : "/api/bills",
-      payload
-    );
+    const res = await submitWithRate(isEdit ? "PUT" : "POST", isEdit ? `/api/bills/${form.id}` : "/api/bills", bill);
     if (res.ok) {
       state = res.data;
       form = null;
@@ -406,6 +598,7 @@ function renderBalances() {
   app.innerHTML = `
     <h1>Balances</h1>
     ${missingRatesBanner(missingRates)}
+    ${statRow(people, pairs)}
     <section class="card">
       <h2>Who's up / down</h2>
       ${
@@ -433,7 +626,7 @@ function renderBalances() {
                 <strong>${esc(p.debtor)}</strong> owes <strong>${esc(p.creditor)}</strong>
               </a>
               <span class="amt">${fmt(p.amount)}</span>
-              <button class="settle-btn" data-from="${esc(p.debtor)}" data-to="${esc(p.creditor)}" data-amt="${p.amount}">Settle up</button>
+              <button class="settle-btn" data-from="${esc(p.debtor)}" data-to="${esc(p.creditor)}" data-amt="${p.amount}">Settle</button>
             </li>`
               )
               .join("")}</ul>`
@@ -447,9 +640,18 @@ function renderBalances() {
   });
 }
 
+function statRow(people, pairs) {
+  const owedTotal = pairs.reduce((s, p) => s + p.amount, 0);
+  return `<div class="stats">
+    <div class="stat"><span class="stat-label">People</span><span class="stat-val">${people.length}</span></div>
+    <div class="stat"><span class="stat-label">Open debts</span><span class="stat-val">${pairs.length}</span></div>
+    <div class="stat"><span class="stat-label">In motion</span><span class="stat-val">${fmt(owedTotal)}</span></div>
+  </div>`;
+}
+
 function missingRatesBanner(missingRates) {
   if (!missingRates || !missingRates.length) return "";
-  return `<div class="banner warn">
+  return `<div class="banner">
     ⚠️ Missing exchange rates (shown at 1:1 until set):
     ${missingRates.map((m) => `${esc(m.from)}→${esc(m.to)}`).join(", ")}.
     <a href="#/settings">Set rates in Settings</a>.
@@ -466,12 +668,7 @@ function openSettle(from, to, outstanding) {
   if (amount == null) return;
   const amt = Number(amount);
   if (!(amt > 0)) return toast("Enter a positive amount.", true);
-  submitWithRate("POST", "/api/settlements", {
-    from,
-    to,
-    amount: amt,
-    currency: state.homeCurrency,
-  }).then((res) => {
+  submitWithRate("POST", "/api/settlements", { from, to, amount: amt, currency: state.homeCurrency }).then((res) => {
     if (res.ok) {
       state = res.data;
       toast("Settlement recorded.");
@@ -487,18 +684,15 @@ function renderSimplify() {
   const anyDebt = Object.values(perPerson).some((v) => Math.abs(v) > 0.005);
   app.innerHTML = `
     <h1>Simplify debts</h1>
-    <p class="hint">Suggested payments that settle everyone with the fewest transfers. This is a
-    read-only suggestion — your pairwise balances are unchanged.</p>
+    <p class="hint">The fewest payments that settle everyone. A read-only suggestion — your
+    pairwise balances are unchanged.</p>
     <section class="card">
       ${
         !anyDebt
           ? "<em class='muted'>Everyone's settled up. 🎉</em>"
           : simplified.length
           ? `<ul class="pairlist">${simplified
-              .map(
-                (t) =>
-                  `<li><span><strong>${esc(t.from)}</strong> pays <strong>${esc(t.to)}</strong></span><span class="amt">${fmt(t.amount)}</span></li>`
-              )
+              .map((t) => `<li><span><strong>${esc(t.from)}</strong> pays <strong>${esc(t.to)}</strong></span><span class="amt">${fmt(t.amount)}</span></li>`)
               .join("")}</ul>`
           : "<em class='muted'>Nothing to simplify.</em>"
       }
@@ -558,9 +752,10 @@ function renderPair(a, b) {
     const ks = bill.participants.map(keyOf);
     return ks.includes(ka) && ks.includes(kb);
   });
+  const sortedPair = [ka, kb].sort();
   const settlements = state.settlements.filter((s) => {
-    const pairKeys = [keyOf(s.from), keyOf(s.to)].sort();
-    return pairKeys[0] === [ka, kb].sort()[0] && pairKeys[1] === [ka, kb].sort()[1];
+    const pk = [keyOf(s.from), keyOf(s.to)].sort();
+    return pk[0] === sortedPair[0] && pk[1] === sortedPair[1];
   });
 
   let headline = `${esc(dispA)} and ${esc(dispB)} are settled up`;
@@ -681,7 +876,7 @@ function renderSettings() {
       <h2>Home currency</h2>
       <p class="hint">All balances are shown in this currency. Changing it re-converts every balance.</p>
       <div class="row">
-        <input id="set-home" value="${esc(state.homeCurrency)}" maxlength="3" style="text-transform:uppercase" />
+        <select id="set-home" style="flex:1">${currencyOptions(state.homeCurrency)}</select>
         <button id="save-home" type="button">Save</button>
       </div>
     </section>
@@ -697,8 +892,8 @@ function renderSettings() {
           : "<em class='muted'>No rates stored yet.</em>"
       }
       <div class="grid2" style="margin-top:1rem">
-        <label>From<input id="rate-from" maxlength="3" placeholder="EUR" style="text-transform:uppercase" /></label>
-        <label>To<input id="rate-to" maxlength="3" placeholder="USD" style="text-transform:uppercase" /></label>
+        <label>From<select id="rate-from">${currencyOptions(state.homeCurrency)}</select></label>
+        <label>To<select id="rate-to">${currencyOptions(state.homeCurrency)}</select></label>
         <label>Rate<input id="rate-val" type="number" min="0" step="0.0001" placeholder="1.08" /></label>
       </div>
       <button id="save-rate" type="button">Set rate</button>
@@ -711,7 +906,7 @@ function renderSettings() {
     const res = await api("PUT", "/api/settings", { homeCurrency });
     if (res.ok) {
       state = res.data;
-      document.getElementById("home-cur").textContent = `Home: ${state.homeCurrency}`;
+      document.getElementById("home-cur").textContent = `Home: ${state.homeCurrency} (${C.symbolOf(state.homeCurrency)})`;
       toast("Home currency updated.");
       render();
     }
@@ -721,7 +916,7 @@ function renderSettings() {
     const from = document.getElementById("rate-from").value.trim().toUpperCase();
     const to = document.getElementById("rate-to").value.trim().toUpperCase();
     const rate = Number(document.getElementById("rate-val").value);
-    if (!from || !to || !(rate > 0)) return toast("Enter from, to and a positive rate.", true);
+    if (!from || !to || from === to || !(rate > 0)) return toast("Pick two different currencies and a positive rate.", true);
     const res = await api("PUT", "/api/rates", { from, to, rate });
     if (res.ok) {
       state = res.data;

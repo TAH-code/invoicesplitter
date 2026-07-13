@@ -310,6 +310,18 @@ const server = http.createServer(async (req, res) => {
 
     if (url.startsWith("/api/")) return sendJSON(res, 404, { error: "unknown endpoint" });
 
+    // Serve the shared pure-logic modules so the browser reuses the same math.
+    if (url.startsWith("/core/") && method === "GET") {
+      const coreDir = path.join(__dirname, "core");
+      const filePath = path.join(__dirname, path.normalize(url));
+      if (!filePath.startsWith(coreDir)) return sendJSON(res, 403, { error: "forbidden" });
+      return fs.readFile(filePath, (err, content) => {
+        if (err) return sendJSON(res, 404, { error: "not found" });
+        res.writeHead(200, { "Content-Type": "text/javascript" });
+        res.end(content);
+      });
+    }
+
     return serveStatic(req, res);
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
