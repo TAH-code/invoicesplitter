@@ -56,3 +56,14 @@ Bill/settlement writes that need an unknown exchange rate return `409` with a
 
 ## Requirements
 Node.js 18+ (uses the built-in test runner and `fetch`, so nothing to install).
+
+## Deploy
+The app runs anywhere Node does. Persistence is auto-detected (`store.js`):
+- **Local / persistent hosts** — reads/writes `data/db.json`.
+- **Vercel / serverless** — if `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Upstash
+  Redis / Vercel KV) are set, the whole DB is stored under one Redis key via the
+  REST API (called with `fetch` — still zero npm dependencies).
+
+On Vercel, all requests are routed to a single function (`api/index.js` → the
+shared request handler) per `vercel.json`. Add an Upstash Redis integration so
+the KV env vars are present, or data won't persist.

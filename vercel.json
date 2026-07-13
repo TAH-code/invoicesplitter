@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "{public,core}/**"
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+}

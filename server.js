@@ -1,39 +1,14 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const {
-  nameKey,
-  reconcileBill,
-  computeBalances,
-  simplifyDebts,
-} = require("./core/split");
+const { nameKey, reconcileBill, computeBalances, simplifyDebts } = require("./core/split");
+const { load, save } = require("./store");
 
-const DATA_FILE = path.join(__dirname, "data", "db.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = process.env.PORT || 3000;
 
 // Free, no-API-key rate endpoint. Returns { rates: { USD: 1.08, ... } } for base.
 const RATE_URL = (base) => `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`;
-
-function loadData() {
-  try {
-    const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    return {
-      homeCurrency: data.homeCurrency || "USD",
-      people: data.people || {}, // normalizedKey -> display name
-      bills: data.bills || [],
-      settlements: data.settlements || [],
-      rates: data.rates || {}, // "FROM->TO" -> number (last fetched or manual override)
-    };
-  } catch {
-    return { homeCurrency: "USD", people: {}, bills: [], settlements: [], rates: {} };
-  }
-}
-
-function saveData(data) {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
 
 function sendJSON(res, status, obj) {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -106,7 +81,7 @@ async function buildState(data) {
   for (const cur of usedCurrencies(data)) {
     await ensureRate(data, cur, data.homeCurrency);
   }
-  saveData(data); // persist any freshly fetched rates
+  await save(data); // persist any freshly fetched rates
   const balances = computeBalances(data);
   balances.simplified = simplifyDebts(balances.perPerson);
   return {
@@ -190,22 +165,22 @@ function serveStatic(req, res) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+async function handler(req, res) {
   const { method } = req;
   const url = req.url.split("?")[0];
   try {
     if (url === "/api/state" && method === "GET") {
-      const data = loadData();
+      const data = await load();
       return sendJSON(res, 200, await buildState(data));
     }
 
     // Home currency + rate overrides
     if (url === "/api/settings" && method === "PUT") {
       const body = await readBody(req);
-      const data = loadData();
+      const data = await load();
       if (body.homeCurrency) data.homeCurrency = String(body.homeCurrency).toUpperCase();
       applyManualRates(data, body.rates);
-      saveData(data);
+      await save(data);
       return sendJSON(res, 200, await buildState(data));
     }
 
@@ -214,36 +189,32 @@ const server = http.createServer(async (req, res) => {
       if (!from || !to || !(Number(rate) > 0)) {
         return sendJSON(res, 400, { error: "from, to and a positive rate are required" });
       }
-      const data = loadData();
+      const data = await load();
       data.rates[`${String(from).toUpperCase()}->${String(to).toUpperCase()}`] = Number(rate);
-      saveData(data);
+      await save(data);
       return sendJSON(res, 200, await buildState(data));
     }
 
     // Bills
     if (url === "/api/bills" && method === "POST") {
       const body = await readBody(req);
-      const data = loadData();
+      const data = await load();
       applyManualRates(data, body.manualRates);
       const { bill, error } = buildBill(data, body, nextId(data.bills));
       if (error) return sendJSON(res, 400, { error });
-      // Ensure we can convert this bill; if not, ask the client for a manual rate.
       const rate = await ensureRate(data, bill.currency, data.homeCurrency);
       if (rate == null) {
-        return sendJSON(res, 409, {
-          error: "exchange rate needed",
-          needRate: { from: bill.currency, to: data.homeCurrency },
-        });
+        return sendJSON(res, 409, { error: "exchange rate needed", needRate: { from: bill.currency, to: data.homeCurrency } });
       }
       data.bills.push(bill);
-      saveData(data);
+      await save(data);
       return sendJSON(res, 201, await buildState(data));
     }
 
     if (url.startsWith("/api/bills/") && method === "PUT") {
       const id = Number(url.split("/").pop());
       const body = await readBody(req);
-      const data = loadData();
+      const data = await load();
       const idx = data.bills.findIndex((b) => b.id === id);
       if (idx === -1) return sendJSON(res, 404, { error: "bill not found" });
       applyManualRates(data, body.manualRates);
@@ -251,28 +222,25 @@ const server = http.createServer(async (req, res) => {
       if (error) return sendJSON(res, 400, { error });
       const rate = await ensureRate(data, bill.currency, data.homeCurrency);
       if (rate == null) {
-        return sendJSON(res, 409, {
-          error: "exchange rate needed",
-          needRate: { from: bill.currency, to: data.homeCurrency },
-        });
+        return sendJSON(res, 409, { error: "exchange rate needed", needRate: { from: bill.currency, to: data.homeCurrency } });
       }
       data.bills[idx] = bill;
-      saveData(data);
+      await save(data);
       return sendJSON(res, 200, await buildState(data));
     }
 
     if (url.startsWith("/api/bills/") && method === "DELETE") {
       const id = Number(url.split("/").pop());
-      const data = loadData();
+      const data = await load();
       data.bills = data.bills.filter((b) => b.id !== id);
-      saveData(data);
+      await save(data);
       return sendJSON(res, 200, await buildState(data));
     }
 
     // Settlements
     if (url === "/api/settlements" && method === "POST") {
       const body = await readBody(req);
-      const data = loadData();
+      const data = await load();
       applyManualRates(data, body.manualRates);
       const from = canonical(data, body.from);
       const to = canonical(data, body.to);
@@ -283,10 +251,7 @@ const server = http.createServer(async (req, res) => {
       const currency = (body.currency || data.homeCurrency).toUpperCase();
       const rate = await ensureRate(data, currency, data.homeCurrency);
       if (rate == null) {
-        return sendJSON(res, 409, {
-          error: "exchange rate needed",
-          needRate: { from: currency, to: data.homeCurrency },
-        });
+        return sendJSON(res, 409, { error: "exchange rate needed", needRate: { from: currency, to: data.homeCurrency } });
       }
       data.settlements.push({
         id: nextId(data.settlements),
@@ -296,15 +261,15 @@ const server = http.createServer(async (req, res) => {
         currency,
         date: body.date || new Date().toISOString().slice(0, 10),
       });
-      saveData(data);
+      await save(data);
       return sendJSON(res, 201, await buildState(data));
     }
 
     if (url.startsWith("/api/settlements/") && method === "DELETE") {
       const id = Number(url.split("/").pop());
-      const data = loadData();
+      const data = await load();
       data.settlements = data.settlements.filter((s) => s.id !== id);
-      saveData(data);
+      await save(data);
       return sendJSON(res, 200, await buildState(data));
     }
 
@@ -326,8 +291,13 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     return sendJSON(res, 500, { error: err.message });
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Bill Splitter running at http://localhost:${PORT}`);
-});
+// Run a real server locally; on Vercel, api/index.js imports `handler` instead.
+if (require.main === module) {
+  http.createServer(handler).listen(PORT, () => {
+    console.log(`Bill Splitter running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = handler;
