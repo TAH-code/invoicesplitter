@@ -363,3 +363,130 @@ test("netPosition: sub-cent balances and unknown names read as settled", () => {
   assert.deepStrictEqual(netPosition({ Ana: 10 }, "Zoe"), { net: 0, status: "settled", amount: 0 });
   assert.strictEqual(netPosition({}, "Ana").status, "settled");
 });
+
+// ---- splitAmount: additional cent-exactness / boundaries -----------------
+
+test("splitAmount spreads leftover pennies one-per-share, largest first", () => {
+  // 5 cents / 3 -> [2,2,1] cents.
+  assert.deepStrictEqual(splitAmount(0.05, 3), [0.02, 0.02, 0.01]);
+});
+
+test("splitAmount with a single share returns the whole amount", () => {
+  assert.deepStrictEqual(splitAmount(9.99, 1), [9.99]);
+});
+
+test("splitAmount sums back to the cent for an awkward total", () => {
+  const shares = splitAmount(100.01, 7);
+  const cents = shares.reduce((a, b) => a + Math.round(b * 100), 0);
+  assert.strictEqual(cents, 10001);
+});
+
+// ---- computeBillShares: subtotal-zero fallback & rounding ----------------
+
+test("computeBillShares splits tax/tip evenly when the itemized subtotal is zero", () => {
+  // No items but a tax+tip of 10 across two people -> 5 each (even-split fallback).
+  const shares = computeBillShares({
+    currency: "USD",
+    payer: "Alice",
+    participants: ["Alice", "Bob"],
+    items: [],
+    tax: 5,
+    tip: 5,
+    grandTotal: 10,
+  });
+  assert.strictEqual(shares.Bob, 5);
+  assert.strictEqual(shares.Alice, 5);
+});
+
+test("computeBillShares: zero-subtotal even split is cent-exact with payer absorbing", () => {
+  // tax 5, tip 0, no items, 3 people -> 5/3 each; payer soaks the leftover cent.
+  const shares = computeBillShares({
+    currency: "USD",
+    payer: "Alice",
+    participants: ["Alice", "Bob", "Carol"],
+    items: [],
+    tax: 5,
+    tip: 0,
+    grandTotal: 5,
+  });
+  assert.strictEqual(shares.Bob, 1.67);
+  assert.strictEqual(shares.Carol, 1.67);
+  assert.strictEqual(shares.Alice, 1.66); // payer absorbs remainder
+  assert.strictEqual(round2(shares.Alice + shares.Bob + shares.Carol), 5);
+});
+
+test("computeBillShares: proportional tax/tip stays cent-exact, payer absorbs remainder", () => {
+  // $10 item split 3 ways + $1 tax spread proportionally -> shares must sum to 11.
+  const shares = computeBillShares({
+    currency: "USD",
+    payer: "Alice",
+    participants: ["Alice", "Bob", "Carol"],
+    items: [{ label: "Shared", amount: 10, assignees: ["Alice", "Bob", "Carol"] }],
+    tax: 1,
+    tip: 0,
+    grandTotal: 11,
+  });
+  assert.strictEqual(shares.Bob, 3.67);
+  assert.strictEqual(shares.Carol, 3.67);
+  assert.strictEqual(shares.Alice, 3.66); // payer absorbs the leftover cent
+  assert.strictEqual(round2(shares.Alice + shares.Bob + shares.Carol), 11);
+});
+
+// ---- billPairwiseDebts: zero shares omitted ------------------------------
+
+test("billPairwiseDebts omits a participant whose share rounds to zero", () => {
+  // Carol is a participant but on no item and there's no tax/tip -> owes nothing.
+  const debts = billPairwiseDebts({
+    currency: "USD",
+    payer: "Alice",
+    participants: ["Alice", "Bob", "Carol"],
+    items: [{ label: "Beer", amount: 20, assignees: ["Alice", "Bob"] }],
+    tax: 0,
+    tip: 0,
+    grandTotal: 20,
+  });
+  assert.deepStrictEqual(debts, [{ from: "Bob", to: "Alice", amount: 10 }]);
+});
+
+// ---- getRate: non-positive rates rejected --------------------------------
+
+test("getRate ignores a non-positive direct rate but still uses a valid inverse", () => {
+  assert.strictEqual(getRate({ "A->B": 0 }, "A", "B"), null);
+  assert.strictEqual(getRate({ "A->B": -1.5 }, "A", "B"), null);
+  assert.strictEqual(getRate({ "A->B": 0, "B->A": 2 }, "A", "B"), 0.5);
+});
+
+// ---- computeBalances: single-participant bill ----------------------------
+
+test("computeBalances: a solo-participant bill produces no debts", () => {
+  const { pairs, perPerson } = computeBalances({
+    homeCurrency: "USD",
+    rates: {},
+    settlements: [],
+    bills: [
+      {
+        id: 1,
+        currency: "USD",
+        payer: "Alice",
+        participants: ["Alice"],
+        items: [{ label: "Solo", amount: 20, assignees: ["Alice"] }],
+        tax: 0,
+        tip: 0,
+        grandTotal: 20,
+      },
+    ],
+  });
+  assert.deepStrictEqual(pairs, []);
+  assert.deepStrictEqual(perPerson, {});
+});
+
+// ---- simplifyDebts: minimality & no-op ------------------------------------
+
+test("simplifyDebts uses at most n-1 transfers", () => {
+  const transfers = simplifyDebts({ A: -30, B: -10, C: 25, D: 15 });
+  assert.strictEqual(transfers.length, 3); // 4 people -> <= 3 transfers
+});
+
+test("simplifyDebts returns nothing when everyone is settled", () => {
+  assert.deepStrictEqual(simplifyDebts({ A: 0, B: 0, C: 0 }), []);
+});
