@@ -7,9 +7,6 @@ const { load, save } = require("./store");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = process.env.PORT || 3000;
 
-// Free, no-API-key rate endpoint. Returns { rates: { USD: 1.08, ... } } for base.
-const RATE_URL = (base) => `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`;
-
 function sendJSON(res, status, obj) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
@@ -38,50 +35,22 @@ function canonical(data, name) {
 }
 
 /**
- * Ensure a FROM->TO rate is available in data.rates. A stored rate (a manual
- * override or a previously-fetched value) always wins and is never clobbered;
- * we only fetch live when no stored rate exists for the pair. Returns the rate
- * number, or null if it can't be resolved (offline / unknown currency and no
- * stored value) — the caller then prompts for a manual rate.
+ * Resolve a FROM->TO rate from data.rates. A stored rate (a manual override)
+ * always wins; its inverse is used if only the reverse pair is stored. Returns
+ * the rate number, or null if no rate is stored for the pair — the caller then
+ * prompts for a manual rate.
  */
-async function ensureRate(data, from, to) {
+function ensureRate(data, from, to) {
   if (from === to) return 1;
   const key = `${from}->${to}`;
   if (typeof data.rates[key] === "number" && data.rates[key] > 0) return data.rates[key];
   const inv = data.rates[`${to}->${from}`];
   if (typeof inv === "number" && inv > 0) return 1 / inv;
-  // Nothing stored — fetch live once and cache it.
-  try {
-    const resp = await fetch(RATE_URL(from));
-    if (resp.ok) {
-      const json = await resp.json();
-      const rate = json && json.rates && json.rates[to];
-      if (typeof rate === "number" && rate > 0) {
-        data.rates[key] = rate;
-        return rate;
-      }
-    }
-  } catch {
-    // ignore — offline / fetch failed
-  }
   return null;
 }
 
-// Currencies used by bills/settlements that must convert to the home currency.
-function usedCurrencies(data) {
-  const set = new Set();
-  for (const b of data.bills) if (b.currency) set.add(b.currency);
-  for (const s of data.settlements) if (s.currency) set.add(s.currency);
-  set.delete(data.homeCurrency);
-  return [...set];
-}
-
 async function buildState(data) {
-  // Best-effort: make sure every used currency has a rate to the home currency.
-  for (const cur of usedCurrencies(data)) {
-    await ensureRate(data, cur, data.homeCurrency);
-  }
-  await save(data); // persist any freshly fetched rates
+  await save(data); // persist any manual rate overrides applied this request
   const balances = computeBalances(data);
   balances.simplified = simplifyDebts(balances.perPerson);
   return {
@@ -202,7 +171,7 @@ async function handler(req, res) {
       applyManualRates(data, body.manualRates);
       const { bill, error } = buildBill(data, body, nextId(data.bills));
       if (error) return sendJSON(res, 400, { error });
-      const rate = await ensureRate(data, bill.currency, data.homeCurrency);
+      const rate = ensureRate(data, bill.currency, data.homeCurrency);
       if (rate == null) {
         return sendJSON(res, 409, { error: "exchange rate needed", needRate: { from: bill.currency, to: data.homeCurrency } });
       }
@@ -220,7 +189,7 @@ async function handler(req, res) {
       applyManualRates(data, body.manualRates);
       const { bill, error } = buildBill(data, body, id);
       if (error) return sendJSON(res, 400, { error });
-      const rate = await ensureRate(data, bill.currency, data.homeCurrency);
+      const rate = ensureRate(data, bill.currency, data.homeCurrency);
       if (rate == null) {
         return sendJSON(res, 409, { error: "exchange rate needed", needRate: { from: bill.currency, to: data.homeCurrency } });
       }
@@ -249,7 +218,7 @@ async function handler(req, res) {
         return sendJSON(res, 400, { error: "from, to (distinct) and a positive amount are required" });
       }
       const currency = (body.currency || data.homeCurrency).toUpperCase();
-      const rate = await ensureRate(data, currency, data.homeCurrency);
+      const rate = ensureRate(data, currency, data.homeCurrency);
       if (rate == null) {
         return sendJSON(res, 409, { error: "exchange rate needed", needRate: { from: currency, to: data.homeCurrency } });
       }

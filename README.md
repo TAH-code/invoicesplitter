@@ -29,8 +29,8 @@ npm test
   settlements, so editing or deleting a bill just recomputes.
 - **Partial settle-up** — record a full or partial payment between two people.
 - **Multi-currency** — each bill is in its own currency; all balances are shown
-  in your configurable **home currency**. Rates are fetched from a free,
-  no-API-key endpoint and cached; you can override any rate in Settings.
+  in your configurable **home currency**. Set an exchange rate for each currency
+  pair you use in Settings; balances for pairs without a rate are shown at 1:1.
 - **Simplify view** — a read-only suggestion of the fewest payments that settle
   everyone.
 
@@ -55,15 +55,14 @@ Bill/settlement writes that need an unknown exchange rate return `409` with a
 `needRate` hint; the UI then prompts for a manual rate and retries.
 
 ## Requirements
-Node.js 18+ (uses the built-in test runner and `fetch`, so nothing to install).
+Node.js 18+ (uses the built-in test runner, so nothing to install).
 
 ## Deploy
 The app runs anywhere Node does. Persistence is auto-detected (`store.js`):
 - **Local / persistent hosts** — reads/writes `data/db.json`.
-- **Vercel / serverless** — if `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Upstash
-  Redis / Vercel KV) are set, the whole DB is stored under one Redis key via the
-  REST API (called with `fetch` — still zero npm dependencies).
+- **Vercel / serverless** — if `BLOB_READ_WRITE_TOKEN` is set, the whole DB is
+  stored as a single JSON object in Vercel Blob (`@vercel/blob`).
 
 On Vercel, all requests are routed to a single function (`api/index.js` → the
-shared request handler) per `vercel.json`. Add an Upstash Redis integration so
-the KV env vars are present, or data won't persist.
+shared request handler) per `vercel.json`. Add the Vercel Blob integration so
+`BLOB_READ_WRITE_TOKEN` is present, or data won't persist.

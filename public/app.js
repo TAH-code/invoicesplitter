@@ -883,7 +883,7 @@ function renderSettings() {
 
     <section class="card">
       <h2>Exchange rates</h2>
-      <p class="hint">1 unit of FROM = N units of TO. Fetched automatically when possible; override here.</p>
+      <p class="hint">1 unit of FROM = N units of TO. Set a rate for each currency pair you use.</p>
       ${
         rateEntries.length
           ? `<ul class="feed">${rateEntries
