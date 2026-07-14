@@ -213,6 +213,26 @@
   }
 
   /**
+   * A person's overall net position from a perPerson map, matched by normalized
+   * name (case/whitespace-insensitive). Returns { net, status, amount } where
+   * status is "owed" (net > 0), "owes" (net < 0) or "settled" (within a cent).
+   * A name not present in the map reads as settled (net 0).
+   */
+  function netPosition(perPerson, name) {
+    const key = nameKey(name);
+    let net = 0;
+    for (const [person, value] of Object.entries(perPerson || {})) {
+      if (nameKey(person) === key) {
+        net = Number(value) || 0;
+        break;
+      }
+    }
+    net = round2(net);
+    const status = net > 0.005 ? "owed" : net < -0.005 ? "owes" : "settled";
+    return { net, status, amount: Math.abs(net) };
+  }
+
+  /**
    * Given per-person net balances, suggest the fewest transfers that settle
    * everyone (classic min-cash-flow greedy). Read-only. Returns [{ from, to, amount }].
    */
@@ -253,6 +273,7 @@
     billPairwiseDebts,
     getRate,
     computeBalances,
+    netPosition,
     simplifyDebts,
   };
 });

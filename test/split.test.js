@@ -9,6 +9,7 @@ const {
   billPairwiseDebts,
   getRate,
   computeBalances,
+  netPosition,
   simplifyDebts,
 } = require("../core/split");
 
@@ -333,4 +334,32 @@ test("simplifyDebts balances multiple debtors and creditors", () => {
   assert.strictEqual(paid.B, 10);
   assert.strictEqual(got.C, 25);
   assert.strictEqual(got.D, 15);
+});
+
+// ---- netPosition ---------------------------------------------------------
+
+test("netPosition: positive net reads as owed", () => {
+  assert.deepStrictEqual(netPosition({ Ana: 42.5, Bob: -42.5 }, "Ana"), {
+    net: 42.5,
+    status: "owed",
+    amount: 42.5,
+  });
+});
+
+test("netPosition: negative net reads as owes with positive amount", () => {
+  assert.deepStrictEqual(netPosition({ Ana: 42.5, Bob: -42.5 }, "Bob"), {
+    net: -42.5,
+    status: "owes",
+    amount: 42.5,
+  });
+});
+
+test("netPosition: matches names case- and whitespace-insensitively", () => {
+  assert.strictEqual(netPosition({ Ana: 10 }, "  ana ").status, "owed");
+});
+
+test("netPosition: sub-cent balances and unknown names read as settled", () => {
+  assert.deepStrictEqual(netPosition({ Ana: 0.004 }, "Ana"), { net: 0, status: "settled", amount: 0 });
+  assert.deepStrictEqual(netPosition({ Ana: 10 }, "Zoe"), { net: 0, status: "settled", amount: 0 });
+  assert.strictEqual(netPosition({}, "Ana").status, "settled");
 });

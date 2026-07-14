@@ -33,6 +33,8 @@ npm test
   pair you use in Settings; balances for pairs without a rate are shown at 1:1.
 - **Simplify view** — a read-only suggestion of the fewest payments that settle
   everyone.
+- **"You" banner** — pick who you are (saved per-device) to see your overall net
+  position across the whole group at the top of every page.
 
 ## How it works
 | Part | File |

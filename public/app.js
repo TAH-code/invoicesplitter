@@ -60,6 +60,59 @@ function nav(hash) {
   location.hash = hash;
 }
 
+// ---- "you" identity (per-device) -----------------------------------------
+
+const YOU_KEY = "billsplitter:you";
+
+function getYou() {
+  try {
+    return localStorage.getItem(YOU_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setYou(name) {
+  try {
+    if (name) localStorage.setItem(YOU_KEY, name);
+    else localStorage.removeItem(YOU_KEY);
+  } catch {
+    /* storage unavailable — banner just won't persist */
+  }
+}
+
+// Personal net-position banner shown above every view. Lives outside #app so it
+// survives the per-view re-renders; call it from render().
+function renderYouBanner() {
+  const el = document.getElementById("you-banner");
+  if (!el || !state) return;
+  const people = state.people || [];
+  const you = getYou();
+  const match = you && people.find((p) => keyOf(p) === keyOf(you));
+
+  if (!people.length) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+
+  if (!match) {
+    el.className = "you-banner unset";
+    el.innerHTML = `👤 <a href="#/settings">Tell us who you are</a> to see your overall balance here.`;
+    return;
+  }
+
+  const { status, amount } = Split.netPosition(state.balances.perPerson, match);
+  const line =
+    status === "owed"
+      ? `you're owed <strong>${fmt(amount)}</strong> overall`
+      : status === "owes"
+      ? `you owe <strong>${fmt(amount)}</strong> overall`
+      : `you're all settled up`;
+  el.className = `you-banner ${status}`;
+  el.innerHTML = `👤 <span class="you-name">${esc(match)}</span> — ${line}`;
+}
+
 // When the server asks for a manual rate (409), collect it and retry.
 async function submitWithRate(method, url, body) {
   let manualRates = { ...(body.manualRates || {}) };
@@ -103,6 +156,7 @@ function render() {
   document.querySelectorAll("#nav a").forEach((a) => {
     a.classList.toggle("active", a.dataset.route === name);
   });
+  renderYouBanner();
   switch (name) {
     case "balances":
       return renderBalances();
@@ -870,8 +924,23 @@ function renderBills() {
 
 function renderSettings() {
   const rateEntries = Object.entries(state.rates).sort((a, b) => a[0].localeCompare(b[0]));
+  const you = getYou();
   app.innerHTML = `
     <h1>Settings</h1>
+    <section class="card">
+      <h2>Who are you?</h2>
+      <p class="hint">Pick yourself to see your overall balance at the top of every page. Saved on this device only.</p>
+      <div class="row">
+        <select id="set-you" style="flex:1">
+          <option value="">— not set —</option>
+          ${state.people
+            .map((p) => `<option ${keyOf(p) === keyOf(you) ? "selected" : ""}>${esc(p)}</option>`)
+            .join("")}
+        </select>
+        <button id="save-you" type="button">Save</button>
+      </div>
+    </section>
+
     <section class="card">
       <h2>Home currency</h2>
       <p class="hint">All balances are shown in this currency. Changing it re-converts every balance.</p>
@@ -899,6 +968,12 @@ function renderSettings() {
       <button id="save-rate" type="button">Set rate</button>
     </section>
   `;
+
+  document.getElementById("save-you").onclick = () => {
+    setYou(document.getElementById("set-you").value);
+    renderYouBanner();
+    toast("Saved who you are on this device.");
+  };
 
   document.getElementById("save-home").onclick = async () => {
     const homeCurrency = document.getElementById("set-home").value.trim().toUpperCase();

@@ -412,6 +412,44 @@ button.ghost:hover {
   font-weight: 600;
 }
 
+/* ---- "you" summary banner ---- */
+.you-banner {
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.you-banner .you-name {
+  font-weight: 700;
+}
+
+.you-banner.owed {
+  background: var(--green-bg);
+  color: var(--green-tx);
+  border-color: transparent;
+}
+
+.you-banner.owes {
+  background: var(--red-bg);
+  color: var(--red-tx);
+  border-color: transparent;
+}
+
+.you-banner.settled,
+.you-banner.unset {
+  color: var(--muted);
+}
+
+.you-banner a {
+  color: var(--indigo);
+  font-weight: 600;
+}
+
 /* ---- lists ---- */
 ul.netlist,
 ul.pairlist,
