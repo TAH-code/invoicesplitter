@@ -3,37 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Bill Splitter</title>
+    <title>BillMe</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand"><span class="brand-mark">💸</span> Bill Splitter</div>
-        <nav id="nav">
-          <div class="nav-group">
-            <span class="nav-label">Bills</span>
-            <a href="#/add" data-route="add">Add a bill</a>
-            <a href="#/bills" data-route="bills">All bills</a>
-          </div>
-          <div class="nav-group">
-            <span class="nav-label">Money</span>
-            <a href="#/balances" data-route="balances">Balances</a>
-            <a href="#/simplify" data-route="simplify">Simplify</a>
-          </div>
-          <div class="nav-group">
-            <span class="nav-label">Setup</span>
-            <a href="#/settings" data-route="settings">Settings</a>
-          </div>
-        </nav>
-        <div class="sidebar-foot">
-          <span class="home-cur" id="home-cur"></span>
-        </div>
-      </aside>
-      <main class="content">
-        <div id="you-banner" class="you-banner" hidden></div>
-        <div id="app"></div>
-      </main>
+    <div class="page">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">💸</span> BillMe</div>
+        <div id="header-people" class="header-people"></div>
+      </header>
+
+      <main id="app"></main>
     </div>
     <div id="toast" class="toast" hidden></div>
     <script src="/core/currencies.js"></script>

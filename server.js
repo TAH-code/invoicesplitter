@@ -164,6 +164,16 @@ async function handler(req, res) {
       return sendJSON(res, 200, await buildState(data));
     }
 
+    // People (register someone with no bill yet)
+    if (url === "/api/people" && method === "POST") {
+      const { name } = await readBody(req);
+      const data = await load();
+      const person = canonical(data, name);
+      if (!person) return sendJSON(res, 400, { error: "a name is required" });
+      await save(data);
+      return sendJSON(res, 201, await buildState(data));
+    }
+
     // Bills
     if (url === "/api/bills" && method === "POST") {
       const body = await readBody(req);
